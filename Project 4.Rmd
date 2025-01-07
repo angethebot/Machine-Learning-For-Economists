@@ -1,0 +1,630 @@
+---
+title: "Prediction Competition 5"
+author: "Tomato 787"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+  word_document: default
+---
+
+\newpage
+## 8. The rest of PDF must include code for Q1 and Q2.
+
+```{r setup, include=FALSE, echo=TRUE}
+library(formatR)
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+
+######################
+## Set your wd here ##
+######################
+getwd()
+path_global="D:/Angie/Grad in UWaterloo/Term 2 W24/ECON626/Prediction Competition/PC5"
+setwd(path_global)
+
+```
+
+
+### Cleaning the data
+```{r, tidy=TRUE}
+suppressPackageStartupMessages(library(tidyverse))
+# Load data
+#car_train_l=read.csv("pc3_and_pc4_training_data_large_v1.csv")
+car_train_s=read.csv("pc3_and_pc4_training_data_small_v1.csv")
+car_train_pc5=read.csv("MLforEcon_W2024_pc5_train_v1.csv")
+car_test=read.csv("MLforEcon_W2024_pc5_test_without_response.csv")
+
+#Check the variable types & Missing values
+library(skimr)
+#skim_without_charts(car_train_l)
+skim_without_charts(car_train_s)
+skim_without_charts(car_train_pc5)
+skim_without_charts(car_test)
+#Both training data sets have 18 variables: 10 character variables and 8 numeric variables
+
+#In the 10 categorical variables, actually only 5: body_type, exterior_color, fuel_type, listed_date, and wheel_system are categorical; the rest are just numeric with unit number:I need to convert them into numeric first.
+false_cat_var = c("back_legroom", "height","length","wheelbase","width")
+extract_numeric = function(x) {
+  # Remove non-numeric characters using regex
+  numeric_part = as.numeric(gsub("[^0-9.]", "", x))
+  return(numeric_part)
+}
+# Apply the function to selected columns of the dataframe
+#car_train_l[false_cat_var] = lapply(car_train_l[false_cat_var], extract_numeric)
+car_train_s[false_cat_var] = lapply(car_train_s[false_cat_var], extract_numeric)
+car_train_pc5[false_cat_var] = lapply(car_train_pc5[false_cat_var], extract_numeric)
+car_test[false_cat_var] = lapply(car_train_s[false_cat_var], extract_numeric)
+
+#Check the variable types & Missing values
+# skim_without_charts(car_train_l)
+# skim_without_charts(car_train_s)
+# skim_without_charts(car_test)
+
+# There are still missing values in back_legroom, height, length, wheelbase, and width. I will simply replace the value with the average of that column.
+#car_train_l = car_train_l %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+car_train_s = car_train_s %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+car_train_pc5 = car_train_pc5 %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+car_test = car_test %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+
+# For categorical variable: listed_date: I can calculate the age of the car with listed_date and year. and I'll keep the age variable, and not use listed_date and year.
+#car_train_l$sale_year = as.numeric(substr(car_train_l$listed_date, start = 1, stop = 4))
+#car_train_l$age = car_train_l$sale_year - car_train_l$year
+
+car_train_s$sale_year = as.numeric(substr(car_train_s$listed_date, start = 1, stop = 4))
+car_train_s$age = car_train_s$sale_year - car_train_s$year
+
+car_train_pc5$sale_year = as.numeric(substr(car_train_pc5$listed_date, start = 1, stop = 4))
+car_train_pc5$age = car_train_pc5$sale_year - car_train_pc5$year
+
+car_test$sale_year = as.numeric(substr(car_test$listed_date, start = 1, stop = 4))
+car_test$age = car_test$sale_year - car_test$year
+
+# I won't use the variable exterior_color as it contains too many categories since different companies name the same color differently; and color matters less for the price of used cars.
+
+# For the rest 3 categorical variable: body_type, fuel_type, and wheel_system, I encode them with numbers so that they can be numeric variables and I can later on scale them.
+# table(car_train_l$body_type)
+# table(car_train_s$body_type)
+# table(car_test$body_type)
+#same types for each dataset. if we just as.factor() them separately, it should be fine.
+#car_train_l$body_type_num = as.numeric(as.factor(car_train_l$body_type))
+car_train_s$body_type_num = as.numeric(as.factor(car_train_s$body_type))
+car_train_pc5$body_type_num = as.numeric(as.factor(car_train_pc5$body_type))
+car_test$body_type_num = as.numeric(as.factor(car_test$body_type))
+
+#car_train_l$fuel_type_num = as.numeric(as.factor(car_train_l$fuel_type))
+car_train_s$fuel_type_num = as.numeric(as.factor(car_train_s$fuel_type))
+car_train_pc5$fuel_type_num = as.numeric(as.factor(car_train_pc5$fuel_type))
+car_test$fuel_type_num = as.numeric(as.factor(car_test$fuel_type))
+
+#car_train_l$wheel_system_num = as.numeric(as.factor(car_train_l$wheel_system))
+car_train_s$wheel_system_num = as.numeric(as.factor(car_train_s$wheel_system))
+car_train_pc5$wheel_system_num = as.numeric(as.factor(car_train_pc5$wheel_system))
+car_test$wheel_system_num = as.numeric(as.factor(car_test$wheel_system))
+
+
+# head(car_train_l)
+# Keep the features I'll use. (now all features are numeric now, I just need to select)
+# price, back_legroom, engine_displacement, height, highway_fuel_economy, horsepower,length,mileage,wheelbase,width,age, body_type_num,fuel_type_num,wheel_system_num
+#car_train_l2=car_train_l%>%dplyr::select(price, back_legroom, engine_displacement, height, highway_fuel_economy, horsepower, length, mileage, wheelbase, width, age, body_type_num, fuel_type_num, wheel_system_num)
+car_train_s2=car_train_s%>%dplyr::select(price, back_legroom, engine_displacement, height, highway_fuel_economy, horsepower, length, mileage, wheelbase, width, age, body_type_num, fuel_type_num, wheel_system_num)
+car_train_pc52=car_train_pc5%>%dplyr::select(price, back_legroom, engine_displacement, height, highway_fuel_economy, horsepower, length, mileage, wheelbase, width, age, body_type_num, fuel_type_num, wheel_system_num)
+car_test2=car_test%>%dplyr::select(price, back_legroom, engine_displacement, height, highway_fuel_economy, horsepower, length, mileage, wheelbase, width, age, body_type_num, fuel_type_num, wheel_system_num)
+
+head(car_train_s2)
+head(car_train_pc52)
+head(car_test2)
+
+#car_train_l2$price = log(car_train_l2$price)
+car_train_s2$price = log(car_train_s2$price)
+car_train_pc52$price = log(car_train_pc52$price)
+
+# Scale all the features (No need in this PC)
+
+# Specify the names of the numeric columns you want to scale
+#var_scale = c("back_legroom", "engine_displacement", "height", "highway_fuel_economy", "horsepower", "length", "mileage", "wheelbase", "width", "age", "body_type_num", "fuel_type_num", "wheel_system_num")
+
+# Method 1: centering it around its mean and then dividing by its standard deviation. 
+# Scale the specified numeric columns
+#car_train_l3 = car_train_l2
+#car_train_l3[var_scale] = scale(car_train_l3[var_scale])
+#car_train_s3 = car_train_s2
+#car_train_s3[var_scale] = scale(car_train_s3[var_scale])
+#car_test3 = car_test2
+#car_test3[var_scale] = scale(car_test2[var_scale])
+
+# Method 2: Min-max scaling scales the values to a specific range (usually 0 to 1) without altering their sign.
+#car_train_l4 = car_train_l2
+#car_train_l4[var_scale] = apply(car_train_l4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+#car_train_s4 = car_train_l2
+#car_train_s4[var_scale] = apply(car_train_s4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+#car_test4 = car_test2
+#car_test4[var_scale] = apply(car_test4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+```
+
+
+# Q1
+
+I decide to use the new training data set for my training data in PC5. (car_train_pc52)
+
+I tried 5 methods: KNN, regression tree, LASSO, random forest, and bagging, perform cross-validation to get the best parameters, and get the MSE for the training and testing data.\
+
+Eventually, random forest with mtry = 3 performed the best, producing:\
+
+train_MSE = 0.01362441, test_MSE = 0.02621426;\
+train r_square = 0.9412589, test r_square = 0.8869654\
+
+I chose this to predict PC5 test data.\
+
+More details for the output of each model can be found in the code below.
+
+```{r}
+# I decide to use the new training data set for my training data in PC5. car_train_pc52
+
+# Split the training data into training and test data.
+set.seed(6265)
+train_index= sample(nrow(car_train_pc52), 0.5 * nrow(car_train_pc52))  # 50% for training, 50% for testing
+train_data = car_train_pc52[train_index, ]
+test_data = car_train_pc52[-train_index, ]
+nrow(test_data)
+nrow(train_data)
+head(train_data)
+head(test_data)
+
+# I will try 6 methods: KNN, regression tree, LASSO, random forest, bagging, and boosting, perform cross-validation to get the best parameters, and get the MSE for the training and testing data. I will choose the model with least testing MSE to predict PC5 test data.
+
+```
+# KNN
+
+train_MSE = 1.051078e-01\
+test_MSE = 0.1197383\
+
+Below is the results for KNN using 6 variables: horsepower, age, mileage,\ highway_fuel_economy,engine_displacement, and back_legroom to predict the price. \
+
+The first table shows KNN results at k value from 1 to 10. It seems that the test MSE is still decreasing at 10. Thefore, the second table shows further cross-validation. Itt seems that when k=15, the test_MSE is the best, which is 0.1197383.
+
+|  k |    train_MSE |  test_MSE |
+|---:|-------------:|----------:|
+|  1 | 1.215793e-05 | 0.1882119 |
+|  2 | 4.625414e-02 | 0.1483645 |
+|  3 | 6.508377e-02 | 0.1359433 |
+|  4 | 7.567850e-02 | 0.1302846 |
+|  5 | 8.236106e-02 | 0.1268202 |
+|  6 | 8.739029e-02 | 0.1244082 |
+|  7 | 9.114057e-02 | 0.1228908 |
+|  8 | 9.391127e-02 | 0.1219635 |
+|  9 | 9.631167e-02 | 0.1211716 |
+| 10 | 9.830376e-02 | 0.1206316 |
+
+|  k |    train_MSE |  test_MSE |
+|---:|-------------:|----------:|
+|  1 | 1.215793e-05 | 0.1882119 |
+|  5 | 8.236106e-02 | 0.1268202 |
+| 10 | 9.830376e-02 | 0.1206316 |
+| 15 | 1.051078e-01 | 0.1197383 |
+| 20 | 1.090539e-01 | 0.1197696 |
+| 25 | 1.113483e-01 | 0.1198668 |
+| 30 | 1.133115e-01 | 0.1201898 |
+
+
+```{r, tidy=TRUE}
+# KNN
+# Load necessary libraries
+library(caret)
+
+# Set up cross-validation
+ctrl_knn = trainControl(method = "cv", number = 5)
+# Define range of k values to tune over
+k_values = c(1,5,10,15,20,25,30)
+# Initialize vectors to store MSE values
+train_MSE_knn = numeric(length(k_values))
+test_MSE_knn = numeric(length(k_values))
+# Train KNN models with different values of k and evaluate performance
+for (i in seq_along(k_values)) {
+  # Train KNN model
+  knn_model = train(price ~ horsepower+age+mileage+highway_fuel_economy+engine_displacement+ back_legroom, data = train_data, 
+                     method = "knn", trControl = ctrl_knn, 
+                     tuneGrid = data.frame(k = k_values[i]))
+  # I want to just use the following six variables: horsepower, age, mileage, highway_fuel_economy,engine_displacement, and back_legroom
+  # Predict on training data
+  train_pred = predict(knn_model, train_data)
+  # Calculate training MSE
+  train_MSE_knn[i] = mean((train_pred - train_data$price)^2)
+  # Predict on test data
+  test_pred = predict(knn_model, test_data)
+  # Calculate test MSE
+  test_MSE_knn[i] = mean((test_pred - test_data$price)^2)
+}
+
+train_MSE_knn
+test_MSE_knn
+# Print training and test MSE for each k
+results_knn = data.frame(k = k_values, train_MSE = train_MSE_knn, test_MSE = test_MSE_knn)
+print(results_knn)
+
+```
+
+# Regression Tree 
+
+train_MSE = 0.09094879\
+test_MSE = 0.09139475\
+
+I tried cp_values from 0.01 to 0.5, increasing by 0.01 each time. The best test_MSE occurs when cp is at its lowest at 0.01 (test_MSE is 0.09139475). After that, the test_MSE just keeps increasing test_MSE, so although a cp of 0.01 is quite low and can cause overfitting, I still use this tree as the best tree.
+
+```{r, tidy=TRUE}
+
+# Load necessary libraries
+library(caret)
+
+# Predictor variables:"back_legroom", "engine_displacement", "height", "highway_fuel_economy","horsepower", "length", "mileage", "wheelbase", "width", "age", "body_type_num", "fuel_type_num", "wheel_system_num"
+# Set up cross-validation
+ctrl_rt = trainControl(method = "cv", number = 5)
+# Define range of number of splits (complexity parameter) to tune over
+cp_values = seq(0.01, 0.5, by = 0.01)
+# Initialize vectors to store MSE values
+train_MSE_rt = numeric(length(cp_values))
+test_MSE_rt = numeric(length(cp_values))
+# Train regression tree models with different complexity parameters and evaluate performance
+for (i in seq_along(cp_values)) {
+  # Train regression tree model
+  tree_model = train(price ~ ., data = train_data, 
+                      method = "rpart", trControl = ctrl_rt, 
+                      tuneGrid = data.frame(cp = cp_values[i]))
+  # Predict on training data
+  train_pred = predict(tree_model, train_data)
+  # Calculate training MSE
+  train_MSE_rt[i] = mean((train_pred - train_data$price)^2)
+  # Predict on test data
+  test_pred = predict(tree_model, test_data)
+  # Calculate test MSE
+  test_MSE_rt[i] = mean((test_pred - test_data$price)^2)
+}
+train_MSE_rt
+test_MSE_rt
+# Print training and test MSE for each number of splits
+results_rt = data.frame(cp = cp_values, train_MSE = train_MSE_rt, test_MSE = test_MSE_rt)
+print(results_rt)
+# The best test_MSE occurs when cp is at its lowest at 0.01 (test_MSE is 0.09139475). After that, the test_MSE just keeps increasing test_MSE, so although a cp of 0.01 is quite low and can cause overfitting, I still use this tree as the best tree.
+
+```
+
+# LASSO
+
+Training MSE  = 0.0672092459693826\
+Test MSE = 0.0667570694268319\
+
+The best lambda is 0.01.
+```{r, tidy=TRUE}
+# Load necessary libraries
+library(glmnet)
+library(caret)
+
+# Define predictor variables
+predictors = c("back_legroom", "engine_displacement", "height", "highway_fuel_economy", "horsepower", "length", "mileage", "wheelbase", "width", "age","body_type_num", "fuel_type_num", "wheel_system_num")
+# Convert data to matrix format
+x_train_LASSO = as.matrix(train_data[, predictors])
+y_train_LASSO = train_data$price
+# Convert test data to matrix format
+x_test_LASSO = as.matrix(test_data[, predictors])
+y_test_LASSO = test_data$price
+# Set up cross-validation
+ctrl_LASSO = trainControl(method = "cv", number = 5)
+# Train LASSO model and perform cross-validation
+lasso_model = train(x = x_train_LASSO, y = y_train_LASSO,
+                     method = "glmnet", 
+                     trControl = ctrl_LASSO,
+                     tuneGrid = expand.grid(alpha = 1, lambda = seq(0.001, 1, length = 100)))
+# Print best lambda value selected by cross-validation
+print(lasso_model$bestTune)
+# Extract best lambda value
+best_lambda = lasso_model$bestTune$lambda
+# Fit LASSO model with best lambda
+lasso_fit = glmnet(x = x_train_LASSO, y = y_train_LASSO, alpha = 1, lambda = best_lambda)
+# Best lambda is 0.001
+# Make predictions on training data
+train_pred_LASSO = predict(lasso_fit, s = best_lambda, newx = x_train_LASSO)
+# Calculate training MSE
+train_MSE_LASSO = mean((train_pred_LASSO - y_train_LASSO)^2)
+
+# Make predictions on test data
+test_pred_LASSO = predict(lasso_fit, s = best_lambda, newx = x_test_LASSO)
+# Calculate test MSE
+test_MSE_LASSO = mean((test_pred_LASSO - y_test_LASSO)^2)
+
+# Print training and test MSE
+print(paste("Training MSE:", train_MSE_LASSO))
+print(paste("Test MSE:", test_MSE_LASSO))
+
+```
+
+# Random Forest
+
+train_MSE = 0.01362441\
+test_MSE = 0.02621426\
+
+train r_square = 0.9412589\
+test r_square = 0.8869654\
+
+The best mtry is 3.
+```{r, tidy=TRUE}
+
+# Load necessary libraries
+library(randomForest)
+library(caret)
+
+# Define predictor variables
+predictors_rf = c("back_legroom", "engine_displacement", "height", "highway_fuel_economy", "horsepower", "length", "mileage", "wheelbase", "width", "age", "body_type_num", "fuel_type_num", "wheel_system_num")
+# Set up cross-validation
+ctrl_rf = trainControl(method = "cv", number = 5)
+mtry_values = seq(1, length(predictors_rf), by = 1)
+# Train Random Forest model with reduced parameters
+# Considering it will take too long to just go through all the possible values of mtry, I decided to go one by one and get as many MSE as possible in the limited time.
+
+#mtry = 1
+rf_model_1 = train(price ~ ., 
+                  data = train_data, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 1),
+                  ntree = 100)
+train_pred_rf1 = predict(rf_model_1, newdata = train_data)
+train_MSE_rf1 = mean((train_pred_rf1 - train_data$price)^2)
+test_pred_rf1 = predict(rf_model_1, newdata = test_data)
+test_MSE_rf1 = mean((test_pred_rf1 - test_data$price)^2)
+train_MSE_rf1
+#0.02763028
+test_MSE_rf1
+#0.03296567
+
+#mtry = 2
+rf_model_2 = train(price ~ ., 
+                  data = train_data, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 2),
+                  ntree = 100)
+train_pred_rf2 = predict(rf_model_2, newdata = train_data)
+train_MSE_rf2 = mean((train_pred_rf2 - train_data$price)^2)
+test_pred_rf2 = predict(rf_model_2, newdata = test_data)
+test_MSE_rf2 = mean((test_pred_rf2 - test_data$price)^2)
+train_MSE_rf2
+#0.01664639
+test_MSE_rf2
+#0.02654976
+
+#mtry = 3
+rf_model_3 = train(price ~ ., 
+                  data = train_data, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 3),
+                  ntree = 100)
+train_pred_rf3 = predict(rf_model_3, newdata = train_data)
+train_MSE_rf3 = mean((train_pred_rf3 - train_data$price)^2)
+test_pred_rf3 = predict(rf_model_3, newdata = test_data)
+test_MSE_rf3 = mean((test_pred_rf3 - test_data$price)^2)
+train_MSE_rf3
+#0.01362441
+test_MSE_rf3
+#0.02621426
+rf_model_3
+#Rsquared is 0.8845728
+train_r_squared_rf3 = 1 - sum((train_data$price - train_pred_rf3)^2) / sum((train_data$price - mean(train_data$price))^2)
+test_r_squared_rf3 = 1 - sum((test_data$price - test_pred_rf3)^2) / sum((test_data$price - mean(test_data$price))^2)
+train_r_squared_rf3
+#train r_square is 0.9412589
+test_r_squared_rf3
+#test r_square is 0.8869654
+
+#mtry = 4
+#(to reduce the training time, I reduce the ntree to 50)
+rf_model_4 = train(price ~ ., 
+                  data = train_data, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 4),
+                  ntree = 50)
+train_pred_rf4 = predict(rf_model_4, newdata = train_data)
+train_MSE_rf4 = mean((train_pred_rf4 - train_data$price)^2)
+test_pred_rf4 = predict(rf_model_4, newdata = test_data)
+test_MSE_rf4 = mean((test_pred_rf4 - test_data$price)^2)
+train_MSE_rf4
+#0.01192969
+test_MSE_rf4
+#0.02662014
+
+#So far, it seems that mtry = 3 can lead this random forest model to achieve the lowest test_MSE = 0.02621426
+
+
+test_pred_pc5 = predict(rf_model_3, newdata = car_test2)
+write.csv(test_pred_pc5, file = "PC5_Tomato787.csv", row.names = FALSE)
+
+
+
+```
+
+# Bagging
+
+train_MSE = 0.08442591\
+test_MSE = 0.08471237
+
+The best test MSE is achieved when ntree=50.
+
+```{r, tidy=TRUE}
+# Load necessary libraries
+library(caret)
+# Define predictor variables
+predictors_b = c("back_legroom", "engine_displacement", "height", "highway_fuel_economy", 
+                "horsepower", "length", "mileage", "wheelbase", "width", "age", 
+                "body_type_num", "fuel_type_num", "wheel_system_num")
+# Set up cross-validation
+ctrl_b = trainControl(method = "cv", number = 5)
+# Define range of number of trees to tune over
+ntree_values = c(50, 100, 150, 200)  # You can adjust this range as needed
+
+
+bagging_model_1 = train(price ~ ., 
+                         data = train_data, 
+                         method = "treebag", 
+                         trControl = ctrl_b,
+                         nbagg = 50)
+train_pred_b1 = predict(bagging_model_1, train_data)
+train_MSE_b1 = mean((train_pred_b1 - train_data$price)^2)
+test_pred_b1 = predict(bagging_model_1, test_data)
+test_MSE_b1 = mean((test_pred_b1 - test_data$price)^2)
+train_MSE_b1 
+#0.08442591
+test_MSE_b1
+#0.08471237
+
+
+bagging_model_2 = train(price ~ ., 
+                         data = train_data, 
+                         method = "treebag", 
+                         trControl = ctrl_b,
+                         nbagg = 100)
+train_pred_b2 = predict(bagging_model_2, train_data)
+train_MSE_b2 = mean((train_pred_b2 - train_data$price)^2)
+test_pred_b2 = predict(bagging_model_2, test_data)
+test_MSE_b2 = mean((test_pred_b2 - test_data$price)^2)
+train_MSE_b2 
+#0.08522453
+test_MSE_b2
+#0.08552948
+
+
+bagging_model_3 = train(price ~ ., 
+                         data = train_data, 
+                         method = "treebag", 
+                         trControl = ctrl_b,
+                         nbagg = 150)
+train_pred_b3 = predict(bagging_model_3, train_data)
+train_MSE_b3 = mean((train_pred_b3 - train_data$price)^2)
+test_pred_b3 = predict(bagging_model_3, test_data)
+test_MSE_b3 = mean((test_pred_b3 - test_data$price)^2)
+train_MSE_b3 
+#0.08506727
+test_MSE_b3
+#0.08540102
+
+# The best test MSE is achieved when ntree=50.
+
+```
+
+
+# Q2
+
+The four MSEs and R-squared are shown in the table below:
+
+|        Model and Test Data           | MSE        | R Squared |
+|--------------------------------------|------------|-----------|
+| Model Trained on PC5 testinig on PC5 | 0.02585847 | 0.8900181 |
+| Model Trained on PC5 testinig on PC3 | 0.01638946 | 0.9288867 |
+| Model Trained on PC3 testinig on PC5 | 0.01673556 | 0.9288199 |
+| Model Trained on PC3 testinig on PC5 | 0.02492503 | 0.8918512 |
+
+
+
+After plotting the distributions of four main variables: price, horsepower, age, and mileage, I find that horsepower seems the only variable with apparent different distributions between PC5 training data and PC3 training data, while all other three variables seems similar (if not identical). Since horsepower is usually what matters most to people when buying a used car, this difference in horsepower cause the differences in the accuracy of each model predicting the test data price.
+
+```{r}
+#Split the PC5 training data and PC3 training data (small) into 80% training and 20% test data.
+set.seed(62652)
+train_index_pc5= sample(nrow(car_train_pc52), 0.8 * nrow(car_train_pc52))  # 80% for training, 20% for testing
+train_data_pc5 = car_train_pc52[train_index_pc5, ]
+test_data_pc5 = car_train_pc52[-train_index_pc5, ]
+
+train_index_pc3= sample(nrow(car_train_s2), 0.8 * nrow(car_train_pc52))  # 80% for training, 20% for testing
+train_data_pc3 = car_train_pc52[train_index_pc3, ]
+test_data_pc3 = car_train_pc52[-train_index_pc3, ]
+
+#Train the Q1 algorithm in train_data_pc5
+Q2_rf_pc5 = train(price ~ ., 
+                  data = train_data_pc5, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 3),
+                  ntree = 100)
+
+#Train the Q1 algorithm in train_data_pc3
+Q2_rf_pc3 = train(price ~ ., 
+                  data = train_data_pc3, 
+                  method = "rf", 
+                  trControl = ctrl_rf,
+                  tuneGrid = expand.grid(mtry = 3),
+                  ntree = 100)
+
+#Calculate MSE on predicting pc5 test data with Q2_rf_pc5
+Q2_test_pred1=predict(Q2_rf_pc5, newdata = test_data_pc5)
+Q2_test_MSE1 = mean((Q2_test_pred1 - test_data_pc5$price)^2)
+test_r_squared1 = 1 - sum((test_data_pc5$price - Q2_test_pred1)^2) / sum((test_data_pc5$price - mean(test_data_pc5$price))^2)
+Q2_test_MSE1
+#0.02585847
+test_r_squared1
+#0.8900181
+
+#Calculate MSE on predicting pc3 test data with Q2_rf_pc5
+Q2_test_pred2=predict(Q2_rf_pc5, newdata = test_data_pc3)
+Q2_test_MSE2 = mean((Q2_test_pred2 - test_data_pc3$price)^2)
+test_r_squared2 = 1 - sum((test_data_pc3$price - Q2_test_pred2)^2) / sum((test_data_pc3$price - mean(test_data_pc3$price))^2)
+Q2_test_MSE2
+#0.01638946
+test_r_squared2
+#0.9288867
+
+
+#Calculate MSE on pc5 test data with Q2_rf_pc3
+Q2_test_pred3=predict(Q2_rf_pc3, newdata = test_data_pc5)
+Q2_test_MSE3 = mean((Q2_test_pred3 - test_data_pc5$price)^2)
+test_r_squared3 = 1 - sum((test_data_pc5$price - Q2_test_pred3)^2) / sum((test_data_pc5$price - mean(test_data_pc5$price))^2)
+Q2_test_MSE3
+#0.01673556
+test_r_squared3
+#0.9288199
+
+
+#Calculate MSE on pc3 test data with Q2_rf_pc3
+Q2_test_pred4=predict(Q2_rf_pc3, newdata = test_data_pc3)
+Q2_test_MSE4 = mean((Q2_test_pred4 - test_data_pc3$price)^2)
+test_r_squared4 = 1 - sum((test_data_pc3$price - Q2_test_pred4)^2) / sum((test_data_pc3$price - mean(test_data_pc3$price))^2)
+Q2_test_MSE4
+#0.02492503
+test_r_squared4
+#0.8918512
+
+
+#how the distributions of observations differ in these two training samples.
+#I am plotting the histograms for y variables in the two training data to check the distribution
+hist1 = ggplot(train_data_pc5, aes(x = price))+ scale_x_continuous(breaks = seq(min(train_data_pc5$price), max(train_data_pc5$price), by = 1)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("Log Price") + ggtitle("Distribution of Prices PC 5 Training Data")
+hist1 
+
+hist2 = ggplot(train_data_pc3, aes(x = price))+ scale_x_continuous(breaks = seq(min(train_data_pc3$price), max(train_data_pc3$price), by = 1)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("Log Price") + ggtitle("Distribution of Prices PC 3 Training Data")
+hist2 
+
+library(gridExtra)
+Q2_combined_plot = grid.arrange(hist1,hist2, nrow = 2)
+# The two training data seem to have the same distribution for the response variable, log price.
+
+# I continue to check a few predictors: horsepower, age, and mileage
+hist_horsepower_pc5 = ggplot(train_data_pc5, aes(x = horsepower))+ scale_x_continuous(breaks = seq(min(train_data_pc5$horsepower), max(train_data_pc5$horsepower), by = 10)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("Horsepower") + ggtitle("Distribution of Horsepower PC5 Training Data")
+hist_horsepower_pc5
+hist_horsepower_pc3 = ggplot(train_data_pc3, aes(x = horsepower))+ scale_x_continuous(breaks = seq(min(train_data_pc3$horsepower), max(train_data_pc3$horsepower), by = 10)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("Horsepower") + ggtitle("Distribution of Horsepower PC3 Training Data")
+hist_horsepower_pc3
+Q2_combined_plot_horsepower = grid.arrange(hist_horsepower_pc5,hist_horsepower_pc3, nrow = 2)
+
+hist_age_pc5 = ggplot(train_data_pc5, aes(x = age))+ scale_x_continuous(breaks = seq(min(train_data_pc5$age), max(train_data_pc5$age), by = 10)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("age") + ggtitle("Distribution of age PC5 Training Data")
+hist_age_pc5
+hist_age_pc3 = ggplot(train_data_pc3, aes(x = age))+ scale_x_continuous(breaks = seq(min(train_data_pc3$age), max(train_data_pc3$age), by = 10)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("age") + ggtitle("Distribution of age PC3 Training Data")
+hist_age_pc3
+Q2_combined_plot_age = grid.arrange(hist_age_pc5,hist_age_pc3, nrow = 2)
+
+hist_mileage_pc5 = ggplot(train_data_pc5, aes(x = mileage))+ scale_x_continuous(breaks = seq(min(train_data_pc5$mileage), max(train_data_pc5$mileage), by = 100000)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("mileage") + ggtitle("Distribution of mileage PC5 Training Data")
+hist_mileage_pc5
+hist_mileage_pc3 = ggplot(train_data_pc3, aes(x = mileage))+ scale_x_continuous(breaks = seq(min(train_data_pc3$mileage), max(train_data_pc3$mileage), by = 100000)) + theme_minimal() +geom_histogram(fill = "skyblue", color = "black")+xlab("mileage") + ggtitle("Distribution of mileage PC3 Training Data")
+hist_mileage_pc3
+Q2_combined_plot_mileage = grid.arrange(hist_mileage_pc5,hist_mileage_pc3, nrow = 2)
+
+# After plotting the distributions of four main variables: price, horsepower, age, and mileage, I find that horsepower seems the only variable with apparent different distributions between PC5 training data and PC3 training data, while all other three variables seems similar (if not identical). Since horsepower is usually what matters most to people when buying a used car, this difference in horsepower cause the differences in the accuracy of each model predicting the test data price.
+
+
+```

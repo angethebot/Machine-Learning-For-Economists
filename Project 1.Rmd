@@ -1,0 +1,283 @@
+---
+title: "Untitled"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+date: "2024-01-31"
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+library(formatR)
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+getwd
+
+######################
+## Set your wd here ##
+######################
+path_global="D:/Angie/Grad in UWaterloo/Term 2 W24/ECON626/Prediction Competition/PC2"
+setwd(path_global)
+
+```
+## R Markdown
+---
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-01-30"
+author: Tomato 787
+---
+
+\newpage
+4.Appendix: All the codes for Q1, Q2, and Q3\
+
+Load data and check the data
+
+```{r}
+#############################
+## Set your file path here ##
+#############################
+
+path_train=paste0(path_global,"/MLforEcon_W2024_PC2_training_set_v1.csv")
+path_train
+path_test=paste0(path_global,"/MLforEcon_W2024_PC2_test_set_without_response_variable_v1.csv")
+path_test
+
+#########################
+## Load and Check Data ##
+#########################
+housev_train=read.csv(path_train)
+head(housev_train)
+names(housev_train)
+#class(names(housev_train)) #string variables
+colnames(housev_train) = tolower(names(housev_train)) #make every column name lower case
+
+housev_test=read.csv(path_test)
+head(housev_test)
+
+nrow(housev_train) #19999 observations
+any(is.na(housev_train)) #No missing value
+```
+
+Q1: Run the regression tree and predict
+```{r}
+
+######################
+## Use Package Tree ##
+######################
+
+if(!require('tree')) {
+    install.packages('tree')
+    library('tree')
+}
+
+# Run a simple tree to see the result
+tree.housev_train = tree(logvalue~.,data = housev_train) # use the whole training dataset as training data
+summary(tree.housev_train) # only three variables are used: "region" "rooms"  "unitsf"
+
+#Visualize the tree selected
+plot(tree.housev_train)
+text(tree.housev_train, pretty = 0)
+
+#Calculate the MSE and R Sqaured
+y_hat_train = predict(tree.housev_train,housev_train)
+y_true = housev_train$logvalue
+MSE = mean((y_hat_train - y_true)^2)
+SST = sum((y_true - mean(y_hat_train))^2)
+SSR = sum((y_true - y_hat_train)^2)
+r_squared = 1-(SSR/SST)
+
+MSE
+r_squared
+```
+
+```{r}
+
+#######################
+## Use Package rpart ##
+#######################
+if(!require('rpart')) {
+    install.packages('rpart')
+    library('rpart')
+}
+
+tree.housev_train2 = rpart(logvalue~.,data = housev_train)
+summary(tree.housev_train2) #number of observations used: 19999
+
+#Visualize the tree selected
+plot(tree.housev_train2) #same results as using Tree package
+text(tree.housev_train2, pretty = 0)
+
+
+y_hat_train2 = predict(tree.housev_train2,housev_train)
+y_true2 = housev_train$logvalue
+MSE2 = mean((y_hat_train2 - y_true2)^2)
+SST2 = sum((y_true2 - mean(y_hat_train2))^2)
+SSR2 = sum((y_true2 - y_hat_train2)^2)
+r_squared2 = 1-(SSR2/SST2)
+
+MSE2 
+r_squared2
+
+#Exact same results as using Tree package. I will just use the results from rpart
+
+
+#######################################
+## Predict values with the test data ##
+#######################################
+y_hat_test = predict(tree.housev_train2,housev_test)
+length(y_hat_test) #make sure I have 10000 predicted values
+head(y_hat_test) #check the head of the predicted values
+predicted_csv=c(21088401,"Tomato787",r_squared2,y_hat_test)
+write.csv(predicted_csv,file = "predicted_csv_tomato787.csv", row.names=FALSE, col.names = FALSE) #after saving it as a csv, I still have to manually delete the first row(the column name)
+
+
+```
+
+
+Q2: Graph of y_true and y_hat for the training data
+```{r}
+
+########################################################
+## Q2 Graph of y_true and y_hat for the training data ##
+########################################################
+library(ggplot2)
+hat_true_training = data.frame(y_hat_train2, y_true2)
+q2 = ggplot(hat_true_training,aes(x=y_true2,y=y_hat_train2))+
+       geom_point()+
+       geom_abline(slope=1, intercept = 0, color = "red",linetype="dashed")+ 
+  #The dots should be on this 45 degree line if the predicted values are accurate
+       labs(x = "True Values", y = "Predicted Values", title = "True vs. Predicted Values")+
+  theme_bw()
+
+ggsave("Q2.png", plot = q2, width = 6, height = 4, units = "in")
+
+q2
+
+```
+
+```{r}
+###########################################
+## Q3 Plotting Variable Importance Graph ##
+###########################################
+
+######################################
+# Try with the regression tree rpart #
+######################################
+library(rpart)
+library(tidyverse)
+summary(tree.housev_train2)
+df = data.frame(importance = tree.housev_train2$variable.importance)
+df = 100* df / max(df$importance) #Make everything relative to the maximum
+
+var_imp <- df %>% 
+  tibble::rownames_to_column() %>% 
+  dplyr::rename("variable" = rowname) %>% 
+  dplyr::arrange(desc(importance)) %>%
+  dplyr::mutate(variable = forcats::fct_inorder(variable))
+q3_1 = ggplot2::ggplot(var_imp) +
+  geom_col(aes(x = variable, y = importance),
+           col = "black", show.legend = F) +
+  coord_flip() +
+  scale_fill_grey() +
+  theme_bw()+
+  ggtitle("Simple Regression Tree Variable Importance Graph")
+ggsave("Q3_1.png", plot = q3_1, width = 6, height = 4, units = "in")
+q3_1
+```
+
+
+```{r}
+##########################
+# Try with random forest #
+##########################
+#install.packages("randomForest")
+#Please install the packages if you dont't have them already
+library(randomForest)
+library(tidyverse)
+index_sampledata = sample(1:nrow(housev_train),0.25*nrow(housev_train)) #only using 25% of the training data as when I tried with all data, it took too long
+sampledata = housev_train[index_sampledata,]
+rf = randomForest(logvalue~., data = sampledata, ntree = 500)
+print(rf)
+#Plot variable importance
+varImpPlot(rf,main="Random Forest Variable Importance Plot")
+
+# Display variable importance
+print("Variable Importance:")
+print(round(importance(rf), 2))
+
+# Plot variable importance
+var_importance = importance(rf)
+var_importance = data.frame(rownames(var_importance),var_importance)
+colnames(var_importance) = c("Variables","Variable Importance")
+var_importance = arrange(var_importance,desc(var_importance$`Variable Importance`))
+var_importance$`Variable Importance` = 100* var_importance$`Variable Importance`/max(var_importance$`Variable Importance`) #Make everything relative to the maximum
+var_importance
+
+q3_2 = barplot(var_importance$`Variable Importance`, names.arg = var_importance$`Variables`, horiz = TRUE,
+        main = "Random Forest Variable Importance Graph",  sub = "Importance relative to the maximum", col = "red", las = 2)
+png("Q3_2.png", width = 1200, height = 1200, units = "px", pointsize = 12)
+barplot(var_importance$`Variable Importance`, names.arg = var_importance$`Variables`, horiz = TRUE,
+        main = "Random Forest Variable Importance Graph",  sub = "Importance relative to the maximum", col = "red", las = 2)
+dev.off()
+```
+
+```{r}
+
+#####################################################################
+## Q4 Regression trees of varying depth & Graphs of Error to Depth ##
+#####################################################################
+summary(tree.housev_train2) #the deepest the tree can go is 3
+
+#split the training data: 75% go into training, 25% go into test
+set.seed(6262)
+index = sample(1:nrow(housev_train),0.75*nrow(housev_train))
+housev_train_train = housev_train[index,]
+housev_train_test = housev_train[-index,]
+
+#writing a loop to calculate the training error and test error
+training_error = c()
+test_error = c()
+depth = c(1,2,3)
+for (i in 1:3) 
+  #since the deepest the tree can go is 3
+{
+  tree_train = rpart(logvalue~.,data = housev_train_train, maxdepth = i)
+  
+  y_hat_train = predict(tree_train,housev_train_train)
+  y_true_train = housev_train_train$logvalue
+  mse_train = mean((y_hat_train - y_true_train)^2) #calculating train error
+  
+  y_hat_test = predict(tree_train,housev_train_test)
+  y_true_test = housev_train_test$logvalue
+  mse_test = mean((y_hat_test - y_true_test)^2)  #calculating test error
+  
+  # Store the results in vectors
+  training_error = c(training_error, mse_train)
+  test_error = c(test_error, mse_test)
+}  
+
+# Display the results
+training_error
+test_error
+
+train_test_df=data.frame(depth,training_error,test_error)
+
+train_test_df
+
+q4 = ggplot(train_test_df, aes(x = depth)) +
+  geom_point(aes(y = training_error), color = "blue", size = 3) +
+  geom_line(aes(y = training_error), color = "blue", size = 1) +
+  geom_point(aes(y = test_error), color = "red", size = 3) +
+  geom_line(aes(y = test_error), color = "red", size = 1) +
+  scale_color_manual(values = c("y1" = "blue", "y2" = "red")) +
+  labs(x = "Depth", y = "Error", title = "Training Error (Blue) and Test Error (Red)")
+ggsave("Q4.png", plot = q4, width = 6, height = 4, units = "in")
+q4
+
+#EOF
+
+```
+
+

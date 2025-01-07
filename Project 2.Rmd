@@ -1,0 +1,702 @@
+---
+title: "Prediction Competition 3"
+author: Tomato 787
+output: 
+  pdf_document: 
+     latex_engine: xelatex
+  html_document: default
+date: "2024-02-06"
+---
+
+## 1. Name: Tomato787\
+## 2. The prediction accuracy in the training set (percentage of predictions correct): 0.74337 \
+## 3. Confuxion Matrix: \
+                 |   True Values    |  Total
+Predicted Values |     0   |  1     |
+---------------- |---------|--------|--------
+             0   |   39831 | 16170  |  56001
+ ----------------|---------|--------|--------
+             1   |   9493  | 34506  |  43999
+  ---------------|---------|--------|--------            
+          Total  |   49324 | 50676  | 100000
+\newpage
+## 4. Graph for Q2 as calculated from the training data.\
+![Q2: Test Error (Blue) and Train Error (Red) against 1/k](Q2.png)
+\newpage
+## 5. Two graphs for Q3 as calculated from the training data.\
+![Q3: Type 1 Error](Q3_1.png)
+
+
+![Q3: Type 2](Q3_2.png)
+\newpage
+## 6. Screenshot of an example from ChatGPT/GPT4 interaction.\
+Below are the graphs of me interacting with ChatGPT on Q3: how to start working on the question and how to solve the errors.
+
+![Q4: Intercation with ChatGPT_1](Q4_1.png)
+
+![Q4: Intercation with ChatGPT_2](Q4_2.png)
+\newpage
+## 7. Code for Q1, Q2 and Q3 answers.\
+
+```{r setup, include=FALSE, echo=TRUE}
+library(formatR)
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+getwd()
+
+######################
+## Set your wd here ##
+######################
+path_global="D:/Angie/Grad in UWaterloo/Term 2 W24/ECON626/Prediction Competition/PC3"
+setwd(path_global)
+
+```
+## Q1: Predict the car prices using KNN.(Use the best KNN model; Use available features & conduct new features using domain knowledge)
+```{r, tidy=TRUE}
+suppressPackageStartupMessages(library(tidyverse))
+# Load data
+car_train_l=read.csv("pc3_and_pc4_training_data_large_v1.csv")
+car_train_s=read.csv("pc3_and_pc4_training_data_small_v1.csv")
+car_test=read.csv("pc3_test_data_without_response_v1.csv")
+
+#Check the variable types & Missing values
+library(skimr)
+skim_without_charts(car_train_l)
+skim_without_charts(car_train_s)
+skim_without_charts(car_test)
+#Both training datasets have 18 variables: 10 character variables and 8 numeric variables
+
+# I also need to create a new price category variable 
+car_train_l$price_cat = ifelse(car_train_l$price < 19500, 1, 0)
+car_train_s$price_cat = ifelse(car_train_s$price < 19500, 1, 0)
+car_test$price_cat = ifelse(car_test$price < 19500, 1, 0)
+
+
+#In the categorical variables, actually only 5: body_type, exterior_color, fuel_type, listed_date, and wheel_system are categorical; the rest are just numeric with unit number:I need to convert them into numeric first.
+false_cat_var = c("back_legroom", "height","length","wheelbase","width")
+extract_numeric = function(x) {
+  # Remove non-numeric characters using regex
+  numeric_part = as.numeric(gsub("[^0-9.]", "", x))
+  return(numeric_part)
+}
+# Apply the function to selected columns of the dataframe
+car_train_l[false_cat_var] = lapply(car_train_l[false_cat_var], extract_numeric)
+car_train_s[false_cat_var] = lapply(car_train_s[false_cat_var], extract_numeric)
+car_test[false_cat_var] = lapply(car_train_s[false_cat_var], extract_numeric)
+
+#Check the variable types & Missing values
+# skim_without_charts(car_train_l)
+# skim_without_charts(car_train_s)
+# skim_without_charts(car_test)
+
+# There are still missing values in back_legroom, height, length, wheelbase, and width. I will simply replace the value with the average of that column.
+car_train_l = car_train_l %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+car_train_s = car_train_s %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+car_test = car_test %>% mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))
+
+# For categorical variable: listed_date: I can calculate the age of the car with listed_date and year. and I'll keep the age variable, and not use listed_date and year.
+car_train_l$sale_year = as.numeric(substr(car_train_l$listed_date, start = 1, stop = 4))
+car_train_l$age = car_train_l$sale_year - car_train_l$year
+car_train_s$sale_year = as.numeric(substr(car_train_s$listed_date, start = 1, stop = 4))
+car_train_s$age = car_train_s$sale_year - car_train_s$year
+car_test$sale_year = as.numeric(substr(car_test$listed_date, start = 1, stop = 4))
+car_test$age = car_test$sale_year - car_test$year
+
+# I won't use the variable exterior_color as it contains too many categories since different companies name the same color differently; and color matters less for the price of used cars.
+
+# For the rest 3 categorical variable: body_type, fuel_type, and wheel_system, I encode them with numbers so that they can be numeric variables and I can later on scale them.
+# table(car_train_l$body_type)
+# table(car_train_s$body_type)
+# table(car_test$body_type)
+#same types for each dataset. if we just as.factor() them separately, it should be fine.
+car_train_l$body_type_num = as.numeric(as.factor(car_train_l$body_type))
+car_train_s$body_type_num = as.numeric(as.factor(car_train_s$body_type))
+car_test$body_type_num = as.numeric(as.factor(car_test$body_type))
+
+car_train_l$fuel_type_num = as.numeric(as.factor(car_train_l$fuel_type))
+car_train_s$fuel_type_num = as.numeric(as.factor(car_train_s$fuel_type))
+car_test$fuel_type_num = as.numeric(as.factor(car_test$fuel_type))
+
+car_train_l$wheel_system_num = as.numeric(as.factor(car_train_l$wheel_system))
+car_train_s$wheel_system_num = as.numeric(as.factor(car_train_s$wheel_system))
+car_test$wheel_system_num = as.numeric(as.factor(car_test$wheel_system))
+
+# Keep the features I'll use. (now all features are numeric)
+head(car_train_l)
+car_train_l2=car_train_l%>%select(price_cat, age,body_type_num,fuel_type_num, wheel_system_num, engine_displacement, height, highway_fuel_economy, horsepower, longitude, mileage, wheelbase,width)
+car_train_s2=car_train_s%>%select(price_cat, age, body_type_num,fuel_type_num, wheel_system_num, engine_displacement, height, highway_fuel_economy, horsepower, longitude, mileage, wheelbase,width)
+car_test2=car_test%>%select(price_cat, age, body_type_num,fuel_type_num, wheel_system_num, engine_displacement, height, highway_fuel_economy, horsepower, longitude, mileage, wheelbase,width)
+
+# Scale all the features
+# Specify the names of the numeric columns you want to scale
+# Method 1: centering it around its mean and then dividing by its standard deviation. 
+var_scale = c("age","body_type_num","fuel_type_num", "wheel_system_num", "engine_displacement", "horsepower","height", "highway_fuel_economy", "longitude", "mileage", "wheelbase","width")
+# Scale the specified numeric columns
+car_train_l3 = car_train_l2
+car_train_l3[var_scale] = scale(car_train_l3[var_scale])
+car_train_s3 = car_train_s2
+car_train_s3[var_scale] = scale(car_train_s3[var_scale])
+car_test3 = car_test2
+car_test3[var_scale] = scale(car_test2[var_scale])
+
+# Method 2: Min-max scaling scales the values to a specific range (usually 0 to 1) without altering their sign.
+car_train_l4 = car_train_l2
+car_train_l4[var_scale] = apply(car_train_l4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+car_train_s4 = car_train_l2
+car_train_s4[var_scale] = apply(car_train_s4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+car_test4 = car_test2
+car_test4[var_scale] = apply(car_test4[var_scale], 2, function(x) (x - min(x)) / (max(x) - min(x)))
+
+
+# Train models and predict
+# Since it takes too long to use both large dataset and small dataset, I'll just use small dataset and split it into training and test datasets.
+set.seed(12345)  # For reproducibility
+train_index = sample(nrow(car_train_s4), 0.2 * nrow(car_train_s4))  # 20% for training, 80% for testing
+train_data = car_train_s4[train_index, ]
+test_data = car_train_s4[-train_index, ]
+
+# Since taking all factors into consideration will make it too long for the model to train, I decide to use the following features: age, mileage, body_type_num, fuel_type_num, wheel_system_num, highway_fuel_economy, horsepower, and engine_displacement.
+selected_features = c("age", "mileage", "body_type_num", "fuel_type_num","wheel_system_num", "highway_fuel_economy", "horsepower", "engine_displacement")
+
+library(class)
+# Start with just one feature: mileage (use k=3,5,20)
+trains.X1 = train_data %>% select(mileage)
+test.X1 = test_data %>% select(mileage)
+test.test.X1 = car_test4 %>% select(mileage)
+# Model 1: and pick k = 20
+ knn_model1 = knn(train = trains.X1, 
+                   test = test.X1, 
+                   cl = train_data$price_cat, 
+                   k = 20)
+ 
+  # Predict on training data
+  train_pred1 = knn(train = trains.X1, 
+                    test = trains.X1, 
+                    cl = train_data$price_cat, 
+                    k = 20)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors1 = mean(train_pred1 != train_data$price_cat)
+  train_errors1
+  # 0.26467
+  # Predict on test data
+  test_pred1 = knn_model1
+  # Calculate test error
+  test_errors1 = mean(test_pred1 != test_data$price_cat)
+  test_errors1
+  # 0.29181
+  
+  test_test_pred1 = knn(train = trains.X1, 
+                    test = test.test.X1, 
+                    cl = train_data$price_cat, 
+                    k = 20)
+  head(test_test_pred1)
+  write.csv(test_test_pred1,file = "predicted1_tomato787.csv", row.names=FALSE, col.names = FALSE) #after saving it as a csv, I still have to manually delete the first row(the column name)
+  
+
+# Model 2: k = 3
+ knn_model2 = knn(train = trains.X1, 
+                   test = test.X1, 
+                   cl = train_data$price_cat, 
+                   k = 3)
+  # Predict on training data
+  train_pred2 = knn(train = trains.X1, 
+                    test = trains.X1, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors2 = mean(train_pred2 != train_data$price_cat)
+  train_errors2 
+  #0.20436
+  # Predict on test data
+  test_pred2 = knn_model2
+  # Calculate test error
+  test_errors2 = mean(test_pred2 != test_data$price_cat)
+  test_errors2
+  #0.328745
+  
+  test_test_pred2 = knn(train = trains.X1, 
+                    test = test.test.X1, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  write.csv(test_test_pred1,file = "predicted2_tomato787.csv", row.names=FALSE, col.names = FALSE) #after saving it as a csv, I still have to manually delete the first row(the column name)
+  
+
+# Model 3: mileage and pick k = 1
+ knn_model2 = knn(train = trains.X1, 
+                   test = test.X1, 
+                   cl = train_data$price_cat, 
+                   k = 3)
+  # Predict on training data
+  train_pred2 = knn(train = trains.X1, 
+                    test = trains.X1, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors2 = mean(train_pred2 != train_data$price_cat)
+  train_errors2 
+  #0.20436
+  # Predict on test data
+  test_pred2 = knn_model2
+  # Calculate test error
+  test_errors2 = mean(test_pred2 != test_data$price_cat)
+  test_errors2
+  #0.328745
+  
+  test_test_pred2 = knn(train = trains.X1, 
+                    test = test.test.X1, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  write.csv(test_test_pred2,file = "predicted2_tomato787.csv", row.names=FALSE, col.names = FALSE) #after saving it as a csv, I still have to manually delete the first row(the column name)
+
+
+# Model 3: k = 5
+ knn_model3 = knn(train = trains.X1, 
+                   test = test.X1, 
+                   cl = train_data$price_cat, 
+                   k = 5)
+  # Predict on training data
+  train_pred3 = knn(train = trains.X1, 
+                    test = trains.X1, 
+                    cl = train_data$price_cat, 
+                    k = 5)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors3 = mean(train_pred3 != train_data$price_cat)
+  train_errors3 
+  #0.23135
+  # Predict on test data
+  test_pred3 = knn_model3
+  # Calculate test error
+  test_errors3 = mean(test_pred3 != test_data$price_cat)
+  test_errors3
+  # 0.31566
+  
+  test_test_pred3 = knn(train = trains.X1, 
+                    test = test.test.X1, 
+                    cl = train_data$price_cat, 
+                    k = 5)
+  write.csv(test_test_pred3,file = "predicted3_tomato787.csv", row.names=FALSE, col.names = FALSE) 
+  
+  
+# Now go with two features: mileage and age (use k=3,5,20)
+trains.X4 = train_data %>% select(mileage, age)
+test.X4 = test_data %>% select(mileage,age)
+test.test.X4 = car_test4 %>% select(mileage,age)
+# Model 4: k=3
+  test_pred4 = knn(train = trains.X4, 
+                   test = test.X4, 
+                   cl = train_data$price_cat, 
+                   k = 3)
+  # Predict on training data
+  train_pred4 = knn(train = trains.X4, 
+                    test = trains.X4, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors4 = mean(train_pred4 != train_data$price_cat)
+  train_errors4 
+  #0.18453
+  # Calculate test error
+  test_errors4 = mean(test_pred4 != test_data$price_cat)
+  test_errors4
+  # 0.319335
+  test_test_pred4 = knn(train = trains.X4, 
+                    test = test.test.X4, 
+                    cl = train_data$price_cat, 
+                    k = 3)
+  write.csv(test_test_pred4,file = "predicted4_tomato787.csv", row.names=FALSE, col.names = FALSE) 
+
+
+  # Model 5: k=5
+  test_pred5 = knn(train = trains.X4, 
+                   test = test.X4, 
+                   cl = train_data$price_cat, 
+                   k = 5)
+  train_pred5 = knn(train = trains.X4, 
+                    test = trains.X4, 
+                    cl = train_data$price_cat, 
+                    k = 5)
+  train_errors5 = mean(train_pred5 != train_data$price_cat)
+  train_errors5 
+  #0.21636
+  test_errors5 = mean(test_pred5 != test_data$price_cat)
+  test_errors5
+  #0.3067825
+  test_test_pred5 = knn(train = trains.X4, 
+                    test = test.test.X4, 
+                    cl = train_data$price_cat, 
+                    k = 5)
+  write.csv(test_test_pred5,file = "predicted5_tomato787.csv", row.names=FALSE, col.names = FALSE) 
+
+    
+# Model 6: k=20
+  test_pred6 = knn(train = trains.X4, 
+                   test = test.X4, 
+                   cl = train_data$price_cat, 
+                   k = 20)
+  train_pred6 = knn(train = trains.X4, 
+                    test = trains.X4, 
+                    cl = train_data$price_cat, 
+                    k = 20)
+  train_errors6 = mean(train_pred6 != train_data$price_cat)
+  train_errors6 
+  #0.25663
+  test_errors6 = mean(test_pred6 != test_data$price_cat)
+  test_errors6
+  #0.2812275
+  test_test_pred6 = knn(train = trains.X4, 
+                    test = test.test.X4, 
+                    cl = train_data$price_cat, 
+                    k = 20)
+  write.csv(test_test_pred6,file = "predicted6_tomato787.csv", row.names=FALSE, col.names = FALSE) 
+
+
+
+#Pick a final model and get the accuracy rate & Confusion Matrix
+# Model 6 has the lowest test error, hence I chose Model 6 as the final model. 
+# The training accuracy rate is 0.74337
+# The Confusion Matrix for training data:
+library(caret)
+# Assuming 'test_pred' contains the predicted classes and 'test_actual' contains the actual classes
+
+actual = train_data$price_cat
+confusion_matrix = table(train_pred6, train_data$price_cat) 
+#the first argument is considered the rows, and the second argument is considered the columns.
+#Rows: predicted Values, ColumnsL Actual Values
+print(confusion_matrix)
+
+```  
+                 |   True Values    |  Total
+Predicted Values |     0       1    |
+---------------- |---------|--------|--------
+             0   |   39831 | 16170  |  56001
+             1   |   9493  | 34506  |  43999
+          Total  |   49324 | 50676  | 100000
+
+
+
+## Q2: Draw a graph of training error/test error against 1/K. It is fine to use just univariate model. 
+```{r}
+# I will use only 10% of the training data and one feature to do the loop
+set.seed(123456)  # For reproducibility
+Q2_index = sample(nrow(car_train_s4), 0.1 * nrow(car_train_s4))  # only use 10%
+Q2_data = car_train_s4[Q2_index, ]
+
+# Now Split the data into training and testing
+Q2_train_index = sample(nrow(Q2_data), 0.2 * nrow(Q2_data))  # 20% for training, 80% for testing
+Q2_train_data = Q2_data[Q2_train_index, ]
+Q2_test_data = Q2_data[-Q2_train_index, ]
+
+trains.XQ2 = Q2_train_data %>% select(mileage,age)
+test.XQ2 = Q2_test_data %>% select(mileage,age)
+
+k_values = seq(1, 100, by = 1)
+# Initialize vectors to store errors
+train_errors = numeric(length(k_values))
+test_errors = numeric(length(k_values))
+
+# Loop through each k value
+
+for (i in seq_along(k_values)) {
+  k = k_values[i]
+  # Train the KNN model
+  test_pred_Q2 = knn(train = trains.XQ2, 
+                   test = test.XQ2, 
+                   cl = Q2_train_data$price_cat, 
+                   k = k)
+  test_errors[i] = mean(test_pred_Q2 != Q2_test_data$price_cat)
+  
+  # Predict on training data
+  train_pred_Q2 = knn(train = trains.XQ2, 
+                    test = trains.XQ2, 
+                    cl = Q2_train_data$price_cat, 
+                    k = k)
+  # Calculate training error: calculates the proportion of incorrect predictions made by a model on a test dataset.
+  train_errors[i] = mean(train_pred_Q2 != Q2_train_data$price_cat)
+  
+}
+
+test_errors
+# Create a data frame for plotting
+error_df = data.frame(k_inverse = 1 / k_values, 
+                       train_error = train_errors,
+                       test_error = test_errors)
+
+
+error_df$log_test_err = log(error_df$test_error)
+error_df$log_train_err = log(error_df$train_error)
+
+# Plot the errors
+ggplot(data = error_df, aes(x = k_inverse)) +
+  geom_line(aes(y = log_test_err, color = "Training Error")) +
+  geom_line(aes(y = log_train_err, color = "Test Error")) +
+  labs(x = "1/k", y = "Error Rate", color = "Error Type") +
+  theme_minimal()
+
+
+error_df$test_err
+plot(error_df$k_inverse, error_df$train_err, type="b", lwd=3, col="Red", xlab = "1/k", ylab = "Test Error(Blue)/Train Error(Red)", ylim=c(0,1))
+lines(error_df$k_inverse, error_df$test_err, type="b", lwd=3, col="Blue", lty=3)
+#The blue line is the test error, there has been a slight drop from the beginning. The lowest is between k=50  and k=60
+#The red line is the train error, it keeps dropping
+
+
+```
+
+
+## Q3: Two types of Error and overall error against Classification Threshold in Linear Discriminant Analysis\
+In this question I will conduct the LDA, calculate the false negative rate and the false positive rate, as well as the overall error rate. Then I will plot the ROC curve of True positive rate and False positive rate.
+
+There isn't a direct threshold parameter like in some other classifiers such as logistic regression. However, we can indirectly control the c
+
+```{r}
+library(MASS)  # For LDA
+library(pROC)  # For ROC curve
+library(tidyverse)  # For data manipulation and visualization
+
+
+Q3_train_data = Q2_train_data
+Q3_test_data = Q2_test_data
+
+# Train Linear Discriminant Analysis model
+lda_model <- lda(price_cat ~ age + mileage, data = Q3_train_data)
+
+# Make predictions on test data
+lda_pred <- predict(lda_model, newdata = Q3_test_data)
+
+# Extract posterior probabilities for class 1
+test_probs <- as.data.frame(lda_pred$posterior[, 2])
+
+# Define a range of thresholds
+thresholds <- seq(0.2, 0.9, by = 0.1)
+
+# Initialize vectors to store error rates
+false_negative_errors <- numeric(length(thresholds))
+false_positive_errors <- numeric(length(thresholds))
+overall_errors <- numeric(length(thresholds))
+
+
+
+# Initialize vectors to store error rates
+false_negative_errors = c()
+false_positive_errors = c()
+overall_errors = c()
+
+
+  # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.2, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+  # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.3, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+  
+    # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.4, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+  
+  
+    # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.5, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+    # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.6, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+    # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.7, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+  
+    # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.8, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+  
+      # Apply threshold to class probabilities
+  predicted_classes <- ifelse(test_probs > 0.9, 1, 0)
+  # Calculate confusion matrix
+  confusion_matrix <- table(predicted_classes, Q3_test_data$price_cat)
+  # Print confusion matrix for debugging
+  print(confusion_matrix)
+  # Check if the confusion matrix contains both classes
+  if (all(c("0", "1") %in% colnames(confusion_matrix))) {
+    # Calculate false negative and false positive errors
+    FNE <- confusion_matrix["0", "1"] / sum(confusion_matrix["0", ])
+    #
+    FPE <- confusion_matrix["1", "0"] / sum(confusion_matrix["1", ])
+  } else {
+    # Set errors to NA if labels are not found
+    FNE <- NA
+    FPE <- NA
+  }
+  # Calculate overall error
+  OE <- mean(predicted_classes != Q3_test_data$price_cat)
+  
+  false_negative_errors = c(false_negative_errors,FNE)
+  false_positive_errors = c( false_positive_errors, FPE)
+  overall_errors = c(overall_errors,OE)
+  
+
+  
+  
+false_negative_errors
+false_positive_errors
+overall_errors
+
+# Plot type 1 error rate against threshold
+plot(thresholds, false_positive_errors, type = "l", col = "red", xlab = "Threshold", ylab = "Type 1 Error Rate",
+     main = "Type 1 Error Rate vs. Threshold")
+
+# Plot type 2 error rate against threshold
+plot(thresholds, false_negative_errors, type = "l", col = "blue", xlab = "Threshold", ylab = "Type 2 Error Rate",
+     main = "Type 2 Error Rate vs. Threshold")
+
+# Plot ROC curve
+#class(test_probs)
+#test_probs[,1]
+#roc_obj <- roc(Q3_test_data$price_cat, test_probs[,1])
+#plot(roc_obj, main = "ROC Curve for Linear Discriminant Analysis")
+
+```
